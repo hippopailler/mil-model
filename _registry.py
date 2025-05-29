@@ -112,7 +112,7 @@ def register_model(tag=None, config=None):
     def decorator(fn):
         nonlocal tag, config
         # Use the custom key name if provided, otherwise use the function's name
-        from slideflow.mil import MILModelConfig
+        from ._params import MILModelConfig
 
         name = tag or fn.__name__
         config = config or MILModelConfig
