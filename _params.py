@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def concordance_index(axis=-1):
     """Concordance index metric for survival analysis."""
     from fastai.metrics import skm_to_fastai
-    from slideflow.stats.concordance import c_index
+    from modules.concordance import c_index
     return skm_to_fastai(c_index, is_class=False, flatten=False)
 
 # -----------------------------------------------------------------------------
@@ -115,7 +115,7 @@ class TrainerConfig:
             self.model_config = build_model_config(model, **kwargs)
         else:
             sf.log.info("Attempting to load custom model class for MIL training.")
-            from slideflow.mil import MILModelConfig
+            from _params import MILModelConfig
             self.model_config = MILModelConfig(model, **kwargs)
         self.model_config.verify_trainer(self)
 
@@ -368,7 +368,7 @@ class TrainerConfig:
                 separately. Defaults to None.
 
         """
-        from slideflow.mil.train import _train_mil, _train_multimodal_mil, _train_multimodal_mixed_mil
+        from train import _train_mil, _train_multimodal_mil, _train_multimodal_mixed_mil
 
         # Prepare output directory
         outdir = self.prepare_training(outcomes, exp_label, outdir)
@@ -447,7 +447,7 @@ class TrainerConfig:
         Returns:
             pd.DataFrame: Dataframe of predictions.
         """
-        from slideflow.mil.eval import run_eval
+        from eval import run_eval
 
         params_to_verify = dict(
             attention_heatmaps=attention_heatmaps,
@@ -996,7 +996,7 @@ class MILModelConfig:
         dataloader_kwargs = None
     ) -> "torch.utils.DataLoader":
         from fastai.vision.all import DataLoader
-        from slideflow.mil import data as data_utils
+        import data as data_utils
 
         dataset_kwargs = dataset_kwargs or dict()
         dataloader_kwargs = dataloader_kwargs or dict()
@@ -1034,7 +1034,7 @@ class MILModelConfig:
         """
         self._verify_eval_params(**kwargs)
 
-        from slideflow.mil.eval import predict_from_bags, predict_from_multimodal_bags, predict_from_mixed_bags
+        from eval import predict_from_bags, predict_from_multimodal_bags, predict_from_mixed_bags
 
         if apply_softmax is None:
             apply_softmax = self.apply_softmax
@@ -1085,7 +1085,7 @@ class MILModelConfig:
             Tuple[np.ndarray, List[np.ndarray]]: Predictions and attention.
 
         """
-        from slideflow.mil.eval import run_inference
+        from eval import run_inference
 
         if apply_softmax is None:
             apply_softmax = self.apply_softmax
