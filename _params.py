@@ -3,11 +3,12 @@
 import numpy as np
 import os
 import torch
-import slideflow as sf
+"""import slideflow as sf"""
 import pandas as pd
 from torch import nn
 from typing import Optional, Union, Callable, List, Tuple, Any, TYPE_CHECKING
-from slideflow import log, errors, Dataset
+from util._init_ import log
+"""from slideflow import log, errors, Dataset"""
 
 from ._registry import get_trainer, build_model_config
 
