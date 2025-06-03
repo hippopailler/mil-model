@@ -39,25 +39,25 @@ def fastai():
 
 @register_model
 def attention_mil():
-    from .models import Attention_MIL
+    from .model import Attention_MIL
     return Attention_MIL
 
 @register_model
 def mm_attention_mil():
-    from .models import MultiModal_Attention_MIL
+    from .model import MultiModal_Attention_MIL
     return MultiModal_Attention_MIL
 
 @register_model
 def mb_attention_mil():
-    from .models import MultiModal_Mixed_Attention_MIL
+    from .model import MultiModal_Mixed_Attention_MIL
     return MultiModal_Mixed_Attention_MIL
 
 @register_model
 def transmil():
-    from .models import TransMIL
+    from .model import TransMIL
     return TransMIL
 
 @register_model('bistro.transformer')
 def bistro_transformer():
-    from .models.bistro import Transformer
+    from .model.bistro import Transformer
     return Transformer

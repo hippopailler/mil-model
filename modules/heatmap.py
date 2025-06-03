@@ -9,9 +9,10 @@ from mpl_toolkits.axes_grid1.inset_locator import mark_inset, zoomed_inset_axes
 from threading import Thread
 
 import slideflow as sf
-from slideflow import errors
-from slideflow.slide import WSI
-from slideflow.util import log
+#from slideflow import errors
+from modules import errors
+from slide.wsi import WSI
+from util._init_ import log
 
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt

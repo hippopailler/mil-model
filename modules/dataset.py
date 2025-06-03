@@ -81,16 +81,21 @@ overview of the structure of ``Dataset`` is as follows:
   └───────┘ │ Report│ │ / tf Dataset   │└─────────┘
             └───────┘ └────────────────┘
 """
-
+import os
 
 from contextlib import contextmanager
 from collections import defaultdict
 from os.path import basename, dirname, exists, isdir, join
 from typing import Any, Dict, List, Optional, Union
-"""from slideflow import errors"""
+#from slideflow import errors
 from modules import errors
-from util._init_ import log, Labels
-"""from slideflow.util import log, Labels"""
+from util._init_ import log, Labels, split_list, assert_is_mag, path_to_ext, path_to_name, as_list, load_json, tile_size_label
+import pandas as pd
+from slide.wsi import WSI
+import util._init_
+from _backend import slide_backend
+from random import shuffle
+#from slideflow.util import log, Labels
 
 def _prepare_slide(
     path: str,
@@ -98,10 +103,10 @@ def _prepare_slide(
     wsi_kwargs: Dict,
     qc: Optional[str],
     qc_kwargs: Dict,
-) -> Optional["sf.WSI"]:
+) -> Optional["WSI"]:
 
     try:
-        slide = sf.WSI(path, **wsi_kwargs)
+        slide = WSI(path, **wsi_kwargs)
         if qc:
             slide.qc(method=qc, **qc_kwargs)
         return slide
@@ -115,8 +120,8 @@ def _prepare_slide(
                   'SF_SLIDE_BACKEND. See https://slideflow.dev/installation/#cucim-vs-libvips '
                   'for more information.'.format(
                     path,
-                    sf.util.path_to_ext(path).upper(),
-                    sf.slide_backend()
+                    path_to_ext(path).upper(),
+                    slide_backend()
                   ))
     except errors.SlideLoadError as e:
         log.error(f'Error loading slide {path}: {e}. Skipping')
@@ -191,7 +196,7 @@ def split_patients_preserved_site(
     unique_labels = list(set(patient_outcome_labels))
     n_unique = len(set(unique_labels))
     # Delayed import in case CPLEX not installed
-    import slideflow.io.preservedsite.crossfolds as cv
+    from ..io.preservedsite import crossfolds as cv
 
     site_list = [patients_dict[p]['site'] for p in patient_list]
     df = pd.DataFrame(
@@ -258,7 +263,7 @@ def split_patients_balanced(
     ]
     # Then, for each sublist, split into n components
     pt_by_outcome_by_n = [
-        list(sf.util.split_list(sub_l, n)) for sub_l in pt_by_outcome
+        list(split_list(sub_l, n)) for sub_l in pt_by_outcome
     ]
     # Print splitting as a table
     log.info(
@@ -289,7 +294,7 @@ def split_patients(patients_dict: Dict[str, Dict], n: int) -> List[List[str]]:
     """
     patient_list = list(patients_dict.keys())
     shuffle(patient_list)
-    return list(sf.util.split_list(patient_list, n))
+    return list(split_list(patient_list, n))
 
 # -----------------------------------------------------------------------------
 
@@ -392,7 +397,7 @@ class Dataset:
                 in the dataset config.
         """
         if isinstance(tile_um, str):
-            sf.util.assert_is_mag(tile_um)
+            assert_is_mag(tile_um)
             tile_um = tile_um.lower()
 
         self.tile_px = tile_px
@@ -401,7 +406,7 @@ class Dataset:
         if filter_blank is None:
             self._filter_blank = []
         else:
-            self._filter_blank = sf.util.as_list(filter_blank)
+            self._filter_blank = as_list(filter_blank)
         self._min_tiles = min_tiles
         self._clip = {}  # type: Dict[str, int]
         self.prob_weights = None  # type: Optional[Dict]
@@ -423,7 +428,7 @@ class Dataset:
 
         if isinstance(config, str):
             self._config = config
-            loaded_config = sf.util.load_json(config)
+            loaded_config = load_json(config)
         else:
             self._config = "<dict>"
             loaded_config = config
@@ -448,7 +453,7 @@ class Dataset:
             )
         # Create labels for each source based on tile size
         if (tile_px is not None) and (tile_um is not None):
-            label = sf.util.tile_size_label(tile_px, tile_um)
+            label = tile_size_label(tile_px, tile_um)
         else:
             label = None
         for source in self.sources:
@@ -513,7 +518,7 @@ class Dataset:
                         raise IndexError(
                             f"Filter header {filter_key} not in annotations."
                         )
-                    filter_vals = sf.util.as_list(self.filters[filter_key])
+                    filter_vals = as_list(self.filters[filter_key])
                     f_ann = f_ann.loc[f_ann[filter_key].isin(filter_vals)]
 
             # Filter out slides that are blank in a given annotation
@@ -525,7 +530,7 @@ class Dataset:
                             f"Header {fb} not found in annotations."
                         )
                     f_ann = f_ann.loc[f_ann[fb].notna()]
-                    f_ann = f_ann.loc[~f_ann[fb].isin(sf.util.EMPTY)]
+                    f_ann = f_ann.loc[~f_ann[fb].isin(EMPTY)]
 
             # Filter out slides that do not meet minimum number of tiles
             if self.min_tiles:
@@ -745,7 +750,7 @@ class Dataset:
             if headers is None:
                 raise ValueError('Category balancing requires headers.')
             # Ensure that header is not type 'float'
-            headers = sf.util.as_list(headers)
+            headers = as_list(headers)
             if any(ret.is_float(h) for h in headers) and not force:
                 raise errors.DatasetBalanceError(
                     f"Headers {','.join(headers)} appear to be `float`. "
@@ -759,7 +764,7 @@ class Dataset:
             tfr_cats = {}  # type: Dict[str, str]
             for tfrecord in tfrecords:
                 slide = path_to_name(tfrecord)
-                balance_cat = sf.util.as_list(labels[slide])
+                balance_cat = as_list(labels[slide])
                 balance_cat_str = '-'.join(map(str, balance_cat))
                 tfr_cats[tfrecord] = balance_cat_str
                 tiles = totals[tfrecord]
@@ -918,7 +923,7 @@ class Dataset:
             slide_list = [
                 s for s in slide_list
                 if not exists(
-                    join(dest, sf.util.path_to_name(s)+'-masks.zip')
+                    join(dest, path_to_name(s)+'-masks.zip')
                 )
             ]
             n_skipped = n_all - len(slide_list)
@@ -1170,7 +1175,7 @@ class Dataset:
             tfr_cats = {}
             for tfrecord in tfrecords:
                 slide = path_to_name(tfrecord)
-                balance_category = sf.util.as_list(labels[slide])
+                balance_category = as_list(labels[slide])
                 balance_cat_str = '-'.join(map(str, balance_category))
                 tfr_cats[tfrecord] = balance_cat_str
                 tiles = totals[tfrecord]
@@ -1466,7 +1471,7 @@ class Dataset:
                 "Dataset tile_px and tile_um must be != 0 to extract tiles"
             )
         if source:
-            sources = sf.util.as_list(source)  # type: List[str]
+            sources = as_list(source)  # type: List[str]
         else:
             sources = list(self.sources.keys())
         all_reports = []
@@ -1987,7 +1992,7 @@ class Dataset:
         # Detect already generated pt files
         done = [
             path_to_name(f) for f in os.listdir(outdir)
-            if sf.util.path_to_ext(join(outdir, f)) == 'pt'
+            if path_to_ext(join(outdir, f)) == 'pt'
         ]
 
         # Work from this dataset.
@@ -2358,7 +2363,7 @@ class Dataset:
                 "Cannot generate labels: dataset is empty after filtering."
             )
         results = {}  # type: Dict
-        headers = sf.util.as_list(headers)
+        headers = as_list(headers)
         unique_labels = {}
         filtered_pts = self.filtered_annotations.patient
         filtered_slides = self.filtered_annotations.slide
@@ -2450,7 +2455,7 @@ class Dataset:
                 if not header_is_float:
                     lbl = _process_cat_label(lbl)
                 if slide in results:
-                    results[slide] = sf.util.as_list(results[slide])
+                    results[slide] = as_list(results[slide])
                     results[slide] += [lbl]
                 elif header_is_float:
                     results[slide] = [lbl]
@@ -2515,7 +2520,7 @@ class Dataset:
                 sf.io.update_manifest_at_dir(tfrecord_dir)
 
             if exists(manifest_path):
-                relative_manifest = sf.util.load_json(manifest_path)
+                relative_manifest = load_json(manifest_path)
             else:
                 relative_manifest = {}
             global_manifest = {}
@@ -2767,7 +2772,7 @@ class Dataset:
                 else:
                     del ret._filters[f]
         if 'filter_blank' in kwargs:
-            kwargs['filter_blank'] = sf.util.as_list(kwargs['filter_blank'])
+            kwargs['filter_blank'] = as_list(kwargs['filter_blank'])
             for f in kwargs['filter_blank']:
                 if f not in ret._filter_blank:
                     raise errors.DatasetFilterError(
@@ -3107,7 +3112,7 @@ class Dataset:
             skip_tfr_verification = True
         else:
             tfr_dir_list_names = [
-                sf.util.path_to_name(tfr) for tfr in tfr_dir_list
+                path_to_name(tfr) for tfr in tfr_dir_list
             ]
         patients_dict = {}
         num_warned = 0
@@ -3190,7 +3195,7 @@ class Dataset:
             if (not splits_file or not exists(splits_file)):
                 loaded_splits = []
             else:
-                loaded_splits = sf.util.load_json(splits_file)
+                loaded_splits = load_json(splits_file)
             for split_id, split in enumerate(loaded_splits):
                 # First, see if strategy is the same
                 if split['strategy'] != val_strategy:
@@ -3456,11 +3461,11 @@ class Dataset:
         slides_with_roi = {}
         patients_with_roi = defaultdict(bool)
         for r in self.rois():
-            s = sf.util.path_to_name(r)
+            s = path_to_name(r)
             with open(r, 'r') as f:
                 has_rois[s] = len(f.read().split('\n')) > 2
         for sp in self.slide_paths():
-            s = sf.util.path_to_name(sp)
+            s = path_to_name(sp)
             slides_with_roi[s] = has_rois[s]
         for s in self.slides():
             p = patients[s]
@@ -3676,7 +3681,7 @@ class Dataset:
             timestring = datetime.now().strftime('%Y%m%d-%H%M%S')
             if exists(dest) and isdir(dest):
                 filename = join(dest, f'tfrecord_report-{timestring}.pdf')
-            elif sf.util.path_to_ext(dest) == 'pdf':
+            elif path_to_ext(dest) == 'pdf':
                 filename = join(dest)
             else:
                 raise ValueError(f"Could not find destination directory {dest}.")
@@ -3705,14 +3710,14 @@ class Dataset:
 
         """
         slide_paths = {
-            sf.util.path_to_name(sp): sp for sp in self.slide_paths()
+            path_to_name(sp): sp for sp in self.slide_paths()
         }
         if not self.tile_px or not self.tile_um:
             raise errors.DatasetError(
                 "Dataset tile_px & tile_um must be set to create TFRecords."
             )
-        for tfr in sf.util.as_list(tfrecord):
-            name = sf.util.path_to_name(tfr)
+        for tfr in as_list(tfrecord):
+            name = path_to_name(tfr)
             if name not in slide_paths:
                 raise errors.SlideNotFoundError(f'Unable to find slide {name}')
             sf.util.tfrecord_heatmap(
@@ -4276,11 +4281,11 @@ class Dataset:
         # identify the slide.
         tfrecords = self.tfrecords()
         if len(tfrecords):
-            tfrecord_names = [sf.util.path_to_name(tfr) for tfr in tfrecords]
+            tfrecord_names = [path_to_name(tfr) for tfr in tfrecords]
             if not len(set(tfrecord_names)) == len(tfrecord_names):
                 duplicate_tfrs = [
                     tfr for tfr in tfrecords
-                    if tfrecord_names.count(sf.util.path_to_name(tfr)) > 1
+                    if tfrecord_names.count(path_to_name(tfr)) > 1
                 ]
                 raise errors.AnnotationsError(
                     "Multiple TFRecords with the same names detected: {}".format(
@@ -4364,7 +4369,7 @@ class Dataset:
             )
             for tfr in pb:
                 first_record = sf.io.get_tfrecord_by_index(tfr, 0)
-                if first_record['slide'] == sf.util.path_to_name(tfr):
+                if first_record['slide'] == path_to_name(tfr):
                     continue
                 elif allow_errors:
                     return False
@@ -4373,7 +4378,7 @@ class Dataset:
                         "Mismatched slide name in TFRecord {}: expected slide "
                         "name {} based on filename, but found {}. ".format(
                             tfr,
-                            sf.util.path_to_name(tfr),
+                            path_to_name(tfr),
                             first_record['slide']
                         )
                 )
