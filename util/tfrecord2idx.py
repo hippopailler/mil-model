@@ -10,6 +10,7 @@ from typing import Optional, Dict, Tuple
 from os.path import dirname, join, exists
 from modules import errors
 from util import path_to_name, zip_allowed, log, extract_feature_dict
+import tensorflow as tf
 
 
 TYPENAME_MAPPING = {
@@ -351,7 +352,7 @@ def process_record_from_bytes(bytes_view):
 def process_record(record, description=None):
     if description is None:
         description = FEATURE_DESCRIPTION
-    example = sf.util.example_pb2.Example()
+    example = tf.train.Example()
     example.ParseFromString(record)
     return extract_feature_dict(
         example.features,
