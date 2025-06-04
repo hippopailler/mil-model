@@ -27,7 +27,7 @@ from util._init_ import log, batch_generator, set_ignore_sigint
 from slide.utils import draw_roi
 import logging
 from _backend import slide_backend
-from models.torch_utils import get_device
+from model.torch_utils import get_device
 
 if TYPE_CHECKING:
     from rich.progress import Progress, TaskID

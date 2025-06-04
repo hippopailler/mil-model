@@ -14,7 +14,7 @@ from contextlib import contextmanager
 
 from . import color
 from norm import utils as ut
-from util._init_ import log
+from util import log
 from tensorflow2.utils import clip_size, standardize_brightness
 
 # -----------------------------------------------------------------------------

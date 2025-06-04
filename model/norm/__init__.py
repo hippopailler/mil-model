@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from rich.progress import Progress
 from modules import errors
 from modules.dataset import Dataset
-from util._init_ import detuple, log, cleanup_progress, _as_list
+from util import detuple, log, cleanup_progress, _as_list, num_cpu
 from norm import (augment, macenko, reinhard, vahadane)
 from norm.utils import fit_presets
 
@@ -153,7 +153,7 @@ class StainNormalizer:
 
         """
         import torch
-        from slideflow.io.torch import cwh_to_whc, whc_to_cwh, is_cwh
+        from io_.torch import cwh_to_whc, whc_to_cwh, is_cwh
 
         if len(inp.shape) == 4:
             return torch.stack([self._torch_transform(img) for img in inp])
@@ -187,7 +187,7 @@ class StainNormalizer:
 
         """
         import torch
-        from slideflow.io.torch import cwh_to_whc, whc_to_cwh, is_cwh
+        from io_.torch import cwh_to_whc, whc_to_cwh, is_cwh
 
         if len(inp.shape) == 4:
             return torch.stack([self._torch_augment(img) for img in inp])
@@ -227,7 +227,7 @@ class StainNormalizer:
         if isinstance(arg1, Dataset):
             # Set up thread pool
             if num_threads == 'auto':
-                num_threads = sf.util.num_cpu(default=8)  # type: ignore
+                num_threads = num_cpu(default=8)  # type: ignore
             log.debug(f"Setting up pool (size={num_threads}) for norm fitting")
             log.debug(f"Using normalizer batch size of {batch_size}")
             pool = mp.dummy.Pool(num_threads)  # type: ignore
@@ -807,11 +807,11 @@ def autoselect(
     if backend is None:
         backend = backend()
     if backend == 'tensorflow':
-        import slideflow.norm.tensorflow
-        BackendNormalizer = sf.norm.tensorflow.TensorflowStainNormalizer
+        from norm.tensorflow2 import TensorflowStainNormalizer
+        BackendNormalizer = TensorflowStainNormalizer
     elif backend == 'torch':
-        import slideflow.norm.torch
-        BackendNormalizer = sf.norm.torch.TorchStainNormalizer  # type: ignore
+        from norm.torch import TorchStainNormalizer
+        BackendNormalizer = TorchStainNormalizer  # type: ignore
     elif backend == 'opencv':
         BackendNormalizer = StainNormalizer
     else:

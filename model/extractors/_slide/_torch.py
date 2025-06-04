@@ -7,7 +7,7 @@ import torch
 import torchvision
 
 from typing import Optional, Callable, Union, TYPE_CHECKING
-from util._init_ import log, as_list
+from util import log, as_list
 
 from ._utils import _build_grid, _log_normalizer, _use_numpy_if_png
 

@@ -12,7 +12,7 @@ import slideflow as sf
 #from slideflow import errors
 from modules import errors
 from slide.wsi import WSI
-from util._init_ import log
+from util import log
 
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt

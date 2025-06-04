@@ -1,10 +1,27 @@
 """Multiple-instance learning (MIL) models"""
 
-from .att_mil import Attention_MIL, MultiModal_Attention_MIL, UQ_MultiModal_Attention_MIL, MultiModal_Mixed_Attention_MIL
-from .transmil import TransMIL
-from util._init_ import is_torch_model_path, torch_available
+from util import is_torch_model_path, torch_available, tf_available, is_tensorflow_model_path
 from typing import Any, Dict, List
 
+
+
+def is_tensorflow_tensor(arg: Any) -> bool:
+    """Checks if the given object is a Tensorflow Tensor."""
+    if tf_available:
+        import tensorflow as tf
+        return isinstance(arg, tf.Tensor)
+    else:
+        return False
+    
+def is_tensorflow_model(arg: Any) -> bool:
+    """Checks if the object is a Tensorflow Model or path to Tensorflow model."""
+    if isinstance(arg, str):
+        return is_tensorflow_model_path(arg)
+    elif tf_available:
+        import tensorflow as tf
+        return isinstance(arg, tf.keras.models.Model)
+    else:
+        return False
 
 def is_torch_tensor(arg: Any) -> bool:
     """Checks if the given object is a Tensorflow Tensor."""

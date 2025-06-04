@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from PIL import Image, UnidentifiedImageError
 from typing import (Any, Dict, List, Optional, Tuple, Union)
 from modules import errors
-from util._init_ import log, path_to_name, path_to_ext  # noqa F401
+from util import log, path_to_name, path_to_ext  # noqa F401
 from slide.utils import *
 
 try:

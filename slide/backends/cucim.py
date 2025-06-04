@@ -8,7 +8,7 @@ import numpy as np
 
 from types import SimpleNamespace
 from typing import Optional, Dict, Any, Tuple, List, TYPE_CHECKING
-from util._init_ import log
+from util import log
 from skimage.transform import resize
 from skimage.util import img_as_float32
 from skimage.color import rgb2hsv

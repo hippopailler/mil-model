@@ -7,7 +7,7 @@ import torch
 import pandas as pd
 from torch import nn
 from typing import Optional, Union, Callable, List, Tuple, Any, TYPE_CHECKING
-from util._init_ import log
+from util import log
 """from slideflow import log, errors, Dataset"""
 
 from ._registry import get_trainer, build_model_config

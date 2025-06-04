@@ -35,7 +35,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union, Sequence
 import slideflow as sf
 """import slideflow.slide.qc"""
 #from slideflow.util import log, path_to_name  # noqa F401
-from util._init_ import log
+from util import log
 from report import SlideReport
 from utils import *
 from .backends import tile_worker, backend_formats, wsi_reader

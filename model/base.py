@@ -10,7 +10,7 @@ from _backend import backend
 import numpy as np
 #import slideflow as sf
 from modules import errors
-from util._init_ import log, assert_is_mag
+from util import log, assert_is_mag
 from norm import autoselect
 if TYPE_CHECKING:
     from norm import StainNormalizer

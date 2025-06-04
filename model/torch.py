@@ -8,6 +8,7 @@ import torch
 import torchvision
 import inspect
 
+from modules.dataset import Dataset
 from torch import Tensor
 from torch.nn.functional import softmax
 from packaging import version
@@ -17,15 +18,19 @@ from os.path import join
 from pandas.api.types import is_float_dtype, is_integer_dtype
 from typing import (TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple,
                     Union, Callable)
-from util._init_ import log, path_to_ext, get_model_config, no_scope, write_json
+from util import log, path_to_ext, get_model_config, no_scope, write_json, load_json, set_ignore_sigint, num_cpu, update_results_log, log_manifest, NormFit, getLoggingLevel, ImgBatchSpeedColumn, cleanup_progress
 from model import torch_utils
 from slide.wsi import WSI
 from norm import StainNormalizer
 from base import BaseFeatureExtractor
-
+from _backend import slide_backend, backend
 from modules import errors
 from model import base as _base
 from model.extractors._slide import features_from_slide
+from stats import metrics_from_dataset
+from util.neptune_utils import NeptuneLog, list_log
+from __init__ import __version__, __gitcommit__
+from stats import predict_dataset, save_dfs
 
 class LinearBlock(torch.nn.Module):
     '''Block module that includes a linear layer -> ReLU -> BatchNorm'''
@@ -535,9 +540,9 @@ class Trainer:
         # Log parameters
         if config is None:
             config = {
-                'slideflow_version': sf.__version__,
-                'backend': sf.backend(),
-                'git_commit': sf.__gitcommit__,
+                'slideflow_version': __version__,
+                'backend': backend(),
+                'git_commit': __gitcommit__,
                 'model_name': self.name,
                 'full_model_name': self.name,
                 'outcomes': self.outcome_names,
@@ -564,7 +569,7 @@ class Trainer:
             if neptune_api is None or neptune_workspace is None:
                 raise ValueError("If using Neptune, must supply neptune_api"
                                  " and neptune_workspace.")
-            self.neptune_logger = sf.util.neptune_utils.NeptuneLog(
+            self.neptune_logger = NeptuneLog(
                 neptune_api,
                 neptune_workspace
             )
@@ -904,7 +909,7 @@ class Trainer:
             normalizer=(self.normalizer if self._has_gpu_normalizer() else None),
         )
         # Calculate patient/slide/tile metrics (AUC, R-squared, C-index, etc)
-        metrics, acc, loss = sf.stats.metrics_from_dataset(
+        metrics, acc, loss = metrics_from_dataset(
             self.inference_model,
             model_type=self.hp.model_type(),
             patients=self.patients,
@@ -934,7 +939,7 @@ class Trainer:
             epoch_results[f'slide_{metric}'] = metrics[metric]['slide']
             epoch_results[f'patient_{metric}'] = metrics[metric]['patient']
         epoch_metrics.update(epoch_results)
-        sf.util.update_results_log(
+        update_results_log(
             results_log,
             'trained_model',
             {f'epoch{self.epoch}': epoch_metrics}
@@ -960,8 +965,8 @@ class Trainer:
             self.normalizer.set_fit(**self.config['norm_fit'])
 
     def _has_gpu_normalizer(self) -> bool:
-        import slideflow.norm.torch
-        return (isinstance(self.normalizer, sf.norm.torch.TorchStainNormalizer)
+        from norm.torch import TorchStainNormalizer
+        return (isinstance(self.normalizer, TorchStainNormalizer)
                 and self.normalizer.device != "cpu")
 
     def _labels_to_device(
@@ -997,8 +1002,8 @@ class Trainer:
 
     def _log_manifest(
         self,
-        train_dts: Optional["sf.Dataset"],
-        val_dts: Optional["sf.Dataset"],
+        train_dts: Optional["Dataset"],
+        val_dts: Optional["Dataset"],
         labels: Optional[Union[str, Dict]] = 'auto'
     ) -> None:
         """Log the tfrecord and label manifest to slide_manifest.csv
@@ -1058,14 +1063,14 @@ class Trainer:
             acc = self._accuracy_as_numpy(acc)
             if isinstance(acc, list):
                 for a, _acc in enumerate(acc):
-                    sf.util.neptune_utils.list_log(
+                    list_log(
                         run=self.neptune_run,
                         label=f'metrics/{label}/{phase}/accuracy-{a}',
                         val=_acc,
                         step=step
                     )
             else:
-                sf.util.neptune_utils.list_log(
+                list_log(
                     run=self.neptune_run,
                     label=f'metrics/{label}/{phase}/accuracy',
                     val=acc,
@@ -1094,7 +1099,7 @@ class Trainer:
             # Validation epoch metrics
             self.neptune_run['metrics/val/epoch/loss'].log(loss,
                                                            step=self.epoch)
-            sf.util.neptune_utils.list_log(
+            list_log(
                 self.neptune_run,
                 'metrics/val/epoch/accuracy',
                 acc,
@@ -1122,19 +1127,19 @@ class Trainer:
                     # If more than one value for a metric
                     #   (e.g. AUC for each category),
                     # log to .../[metric]/[i]
-                    sf.util.neptune_utils.list_log(
+                    list_log(
                         self.neptune_run,
                         metric_label('tile'),
                         tile_metric,
                         step=self.epoch
                     )
-                    sf.util.neptune_utils.list_log(
+                    list_log(
                         self.neptune_run,
                         metric_label('slide'),
                         slide_metric,
                         step=self.epoch
                     )
-                    sf.util.neptune_utils.list_log(
+                    list_log(
                         self.neptune_run,
                         metric_label('patient'),
                         patient_metric,
@@ -1243,7 +1248,7 @@ class Trainer:
         if self.mixed_precision and self.device.type == 'cuda':
             self.scaler = torch.cuda.amp.GradScaler()
 
-    def _prepare_neptune_run(self, dataset: "sf.Dataset", label: str) -> None:
+    def _prepare_neptune_run(self, dataset: "Dataset", label: str) -> None:
         if self.use_neptune:
             tags = [label]
             if 'k-fold' in self.config['validation_strategy']:
@@ -1261,7 +1266,7 @@ class Trainer:
             )
             try:
                 config_path = join(self.outdir, 'params.json')
-                config = sf.util.load_json(config_path)
+                config = load_json(config_path)
                 config['neptune_id'] = self.neptune_run['sys/id'].fetch()
             except Exception:
                 log.info("Unable to log params (params.json) with Neptune.")
@@ -1277,7 +1282,7 @@ class Trainer:
             empty_inp += [
                 torch.empty([self.hp.batch_size, self.num_slide_features])
             ]
-        if sf.getLoggingLevel() <= 20:
+        if getLoggingLevel() <= 20:
             model_summary = torch_utils.print_module_summary(
                 self.model, empty_inp
             )
@@ -1304,8 +1309,8 @@ class Trainer:
 
     def _setup_dataloaders(
         self,
-        train_dts: Optional["sf.Dataset"],
-        val_dts: Optional["sf.Dataset"],
+        train_dts: Optional["Dataset"],
+        val_dts: Optional["Dataset"],
         mid_train_val: bool = False,
         incl_labels: bool = True,
         from_wsi: bool = False,
@@ -1495,7 +1500,7 @@ class Trainer:
                 "in model params."
             )
 
-    def _verify_img_format(self, dataset, *datasets: Optional["sf.Dataset"]) -> str:
+    def _verify_img_format(self, dataset, *datasets: Optional["Dataset"]) -> str:
         """Verify that the image format of the dataset matches the model config.
 
         Args:
@@ -1547,7 +1552,7 @@ class Trainer:
 
     def predict(
         self,
-        dataset: "sf.Dataset",
+        dataset: "Dataset",
         batch_size: Optional[int] = None,
         norm_fit: Optional[NormFit] = None,
         format: str = 'parquet',
@@ -1615,13 +1620,13 @@ class Trainer:
         self.model.eval()
         self._log_manifest(None, dataset, labels=None)
 
-        if from_wsi and sf.slide_backend() == 'libvips':
+        if from_wsi and slide_backend() == 'libvips':
             pool = mp.Pool(
-                sf.util.num_cpu(default=8),
-                initializer=sf.util.set_ignore_sigint
+                num_cpu(default=8),
+                initializer=set_ignore_sigint
             )
         elif from_wsi:
-            pool = mp.dummy.Pool(sf.util.num_cpu(default=8))
+            pool = mp.dummy.Pool(num_cpu(default=8))
         else:
             pool = None
         if not batch_size:
@@ -1641,7 +1646,7 @@ class Trainer:
             slide_input=self.slide_input,
             normalizer=(self.normalizer if self._has_gpu_normalizer() else None),
         )
-        dfs = sf.stats.predict_dataset(
+        dfs = predict_dataset(
             model=self.model,
             dataset=self.dataloaders['val'],
             model_type=self._model_type,
@@ -1652,7 +1657,7 @@ class Trainer:
             reduce_method=reduce_method
         )
         # Save predictions
-        sf.stats.metrics.save_dfs(dfs, format=format, outdir=self.outdir)
+        save_dfs(dfs, format=format, outdir=self.outdir)
         self._close_dataloaders()
         if pool is not None:
             pool.close()
@@ -1660,7 +1665,7 @@ class Trainer:
 
     def evaluate(
         self,
-        dataset: "sf.Dataset",
+        dataset: "Dataset",
         batch_size: Optional[int] = None,
         save_predictions: Union[bool, str] = 'parquet',
         reduce_method: Union[str, Callable] = 'average',
@@ -1720,13 +1725,13 @@ class Trainer:
             self.validation_batch_size = batch_size
         if not self.model:
             raise errors.ModelNotLoadedError
-        if from_wsi and sf.slide_backend() == 'libvips':
+        if from_wsi and slide_backend() == 'libvips':
             pool = mp.Pool(
-                sf.util.num_cpu(default=8),
-                initializer=sf.util.set_ignore_sigint
+                num_cpu(default=8),
+                initializer=set_ignore_sigint
             )
         elif from_wsi:
-            pool = mp.dummy.Pool(sf.util.num_cpu(default=8))
+            pool = mp.dummy.Pool(num_cpu(default=8))
         else:
             pool = None
 
@@ -1759,7 +1764,7 @@ class Trainer:
         results_str = json.dumps(results['eval'], indent=2, sort_keys=True)
         log.info(f"Evaluation metrics: {results_str}")
         results_log = os.path.join(self.outdir, 'results_log.csv')
-        sf.util.update_results_log(results_log, 'eval_model', results)
+        update_results_log(results_log, 'eval_model', results)
 
         if self.neptune_run:
             self.neptune_run['eval/results'] = results['eval']
@@ -1771,8 +1776,8 @@ class Trainer:
 
     def train(
         self,
-        train_dts: "sf.Dataset",
-        val_dts: "sf.Dataset",
+        train_dts: "Dataset",
+        val_dts: "Dataset",
         log_frequency: int = 20,
         validate_on_batch: int = 0,
         validation_batch_size: Optional[int] = None,
@@ -1891,7 +1896,7 @@ class Trainer:
         img_format = self._verify_img_format(train_dts, val_dts)
         if img_format and self.config['img_format'] is None:
             self.config['img_format'] = img_format
-            sf.util.write_json(self.config, join(self.outdir, 'params.json'))
+            write_json(self.config, join(self.outdir, 'params.json'))
 
         if self.use_tensorboard:
             from google.protobuf import __version__ as protobuf_version
@@ -1902,13 +1907,13 @@ class Trainer:
                 )
                 self.use_tensorboard = False
 
-        if from_wsi and sf.slide_backend() == 'libvips':
+        if from_wsi and slide_backend() == 'libvips':
             pool = mp.Pool(
-                sf.util.num_cpu(default=8),
-                initializer=sf.util.set_ignore_sigint
+                num_cpu(default=8),
+                initializer=set_ignore_sigint
             )
         elif from_wsi:
-            pool = mp.dummy.Pool(sf.util.num_cpu(default=8))
+            pool = mp.dummy.Pool(num_cpu(default=8))
         else:
             pool = None
 
@@ -1924,14 +1929,14 @@ class Trainer:
             config_path = join(self.outdir, 'params.json')
             if not os.path.exists(config_path):
                 config = {
-                    'slideflow_version': sf.__version__,
+                    'slideflow_version': __version__,
                     'hp': self.hp.to_dict(),
-                    'backend': sf.backend()
+                    'backend': backend()
                 }
             else:
-                config = sf.util.load_json(config_path)
+                config = load_json(config_path)
             config['norm_fit'] = self.normalizer.get_fit(as_list=True)
-            sf.util.write_json(config, config_path)
+            write_json(config, config_path)
 
         # Training preparation
         if steps_per_epoch_override:
@@ -1989,11 +1994,11 @@ class Trainer:
                 *Progress.get_default_columns(),
                 TimeElapsedColumn(),
                 ImgBatchSpeedColumn(self.hp.batch_size),
-                transient=sf.getLoggingLevel()>20
+                transient=getLoggingLevel()>20
             )
             task = pb.add_task("Training...", total=self.steps_per_epoch)
             pb.start()
-            with sf.util.cleanup_progress(pb):
+            with cleanup_progress(pb):
                 while self.step <= self.steps_per_epoch:
                     self._training_step(pb)
                     if self.early_stop:

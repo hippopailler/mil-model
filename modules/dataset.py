@@ -82,6 +82,11 @@ overview of the structure of ``Dataset`` is as follows:
             └───────┘ └────────────────┘
 """
 import os
+import copy
+import multiprocessing as mp
+import shutil
+import csv
+import threading
 
 from contextlib import contextmanager
 from collections import defaultdict
@@ -89,13 +94,26 @@ from os.path import basename, dirname, exists, isdir, join
 from typing import Any, Dict, List, Optional, Union
 #from slideflow import errors
 from modules import errors
-from util._init_ import log, Labels, split_list, assert_is_mag, path_to_ext, path_to_name, as_list, load_json, tile_size_label
+from util import log, Labels, split_list, assert_is_mag, path_to_ext, path_to_name, as_list, load_json, tile_size_label, EMPTY, num_cpu, set_ignore_sigint, _shortname, read_annotations
 import pandas as pd
 from slide.wsi import WSI
-import util._init_
+import util
 from _backend import slide_backend
 from random import shuffle
+from rich.progress import track, Progress
+from model.torch import ModelParams
+from typing import (TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple,
+                    Union, Callable)
 #from slideflow.util import log, Labels
+from tqdm import tqdm
+
+def _create_index(tfrecord, force=False):
+    index_name = join(
+        dirname(tfrecord),
+        path_to_name(tfrecord)+'.index'
+    )
+    if not tfrecord2idx.find_index(tfrecord) or force:
+        tfrecord2idx.create_index(tfrecord, index_name)
 
 def _prepare_slide(
     path: str,
@@ -196,7 +214,7 @@ def split_patients_preserved_site(
     unique_labels = list(set(patient_outcome_labels))
     n_unique = len(set(unique_labels))
     # Delayed import in case CPLEX not installed
-    from ..io.preservedsite import crossfolds as cv
+    from io_.preservedsite import crossfolds as cv
 
     site_list = [patients_dict[p]['site'] for p in patient_list]
     df = pd.DataFrame(
@@ -585,7 +603,7 @@ class Dataset:
         if isinstance(hp, dict):
             hp_px = hp['tile_px']
             hp_um = hp['tile_um']
-        elif isinstance(hp, sf.ModelParams):
+        elif isinstance(hp, ModelParams):
             hp_px = hp.tile_px
             hp_um = hp.tile_um
         else:
@@ -838,8 +856,8 @@ class Dataset:
             # Multiprocessing.
             index_fn = partial(_create_index, force=force)
             pool = mp.Pool(
-                sf.util.num_cpu(),
-                initializer=sf.util.set_ignore_sigint
+                num_cpu(),
+                initializer=set_ignore_sigint
             )
             for _ in track(pool.imap_unordered(index_fn, index_to_update),
                         description=f'Updating index files...',
@@ -1237,7 +1255,7 @@ class Dataset:
 
         """
         df = None
-        with mp.Pool(4, initializer=sf.util.set_ignore_sigint) as pool:
+        with mp.Pool(4, initializer=set_ignore_sigint) as pool:
             fn = partial(
                 _get_tile_df,
                 tile_px=self.tile_px,
@@ -1561,7 +1579,7 @@ class Dataset:
 
                 # Use a single shared multiprocessing pool
                 if 'num_threads' not in kwargs:
-                    num_threads = sf.util.num_cpu()
+                    num_threads = num_cpu()
                     if num_threads is None:
                         num_threads = 8
                     if sf.slide_backend() == 'libvips':
@@ -1571,7 +1589,7 @@ class Dataset:
                 if num_threads != 1:
                     pool = kwargs['pool'] = ctx.Pool(
                         num_threads,
-                        initializer=sf.util.set_ignore_sigint
+                        initializer=set_ignore_sigint
                     )
                     qc_kwargs['pool'] = pool
                 else:
@@ -2883,8 +2901,8 @@ class Dataset:
             otsu_task = pb.add_task("Otsu thresholding...", total=len(paths))
         pb.start()
         pool = mp.Pool(
-            sf.util.num_cpu(default=16),
-            initializer=sf.util.set_ignore_sigint
+            num_cpu(default=16),
+            initializer=set_ignore_sigint
         )
         wsi_list = []
         to_remove = []
@@ -4159,7 +4177,7 @@ class Dataset:
             annotations_file (str): Path to annotations file.
 
         """
-        header, _ = sf.util.read_annotations(annotations_file)
+        header, _ = read_annotations(annotations_file)
         slide_list = self.slide_paths(apply_filters=False)
 
         # First, load all patient names from the annotations file
@@ -4312,8 +4330,8 @@ class Dataset:
         """
         tfrecords = self.tfrecords()
         if len(tfrecords):
-            with mp.Pool(sf.util.num_cpu(),
-                         initializer=sf.util.set_ignore_sigint) as pool:
+            with mp.Pool(num_cpu(),
+                         initializer=set_ignore_sigint) as pool:
                 img_formats = []
                 mapped = pool.imap_unordered(
                     sf.io.detect_tfrecord_format,

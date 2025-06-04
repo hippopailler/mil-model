@@ -9,13 +9,13 @@ import shapely.validation as sv
 import shapely.geometry as sg
 import shapely.affinity as sa
 import xml.etree.ElementTree as ET
-import util._init_
+import util
 
 from shapely.ops import unary_union, polygonize
 from PIL import Image, ImageDraw
 #from slideflow import errors, log
 from modules import errors
-from util._init_ import log
+from util import log
 from types import SimpleNamespace
 from typing import Union, List, Tuple, Optional, Dict
 
@@ -267,7 +267,7 @@ class ROI:
             hole_points = None
 
         # Build triangles.
-        triangle_vertices = util._init_.create_triangles(
+        triangle_vertices = util.create_triangles(
             as_open_array(self.poly_coords()),
             hole_vertices=hole_vertices,
             hole_points=hole_points

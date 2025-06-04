@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from typing import Optional, Callable, Union, TYPE_CHECKING
 #from slideflow import log
-from util._init_ import log
+from util import log
 from norm import autoselect
 from ._utils import _build_grid, _log_normalizer, _use_numpy_if_png
 

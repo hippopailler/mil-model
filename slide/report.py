@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 #import slideflow as sf
 #from slideflow.util import log, path_to_name  # noqa F401
-from util._init_ import log, path_to_name
+from util import log, path_to_name
 
 
 if TYPE_CHECKING:

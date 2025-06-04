@@ -11,7 +11,7 @@ from norm import StainNormalizer
 #from slideflow.norm.tensorflow import reinhard, macenko
 
 #from slideflow.util import detuple, log, cleanup_progress, _as_list
-from util._init_ import detuple, log, cleanup_progress, _as_list
+from util import detuple, log, cleanup_progress, _as_list
 from rich.progress import Progress
 
 import tensorflow as tf
